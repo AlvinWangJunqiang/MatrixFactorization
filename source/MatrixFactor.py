@@ -5,7 +5,7 @@ import numpy as np
 from scipy import linalg
 from numpy import dot
 
-MIN_LIMIT = 0.1
+MIN_LIMIT = 1
 MAX_LIMIT = 20
 
 class MatrixProcess():
@@ -18,7 +18,7 @@ class MatrixProcess():
 		#self.file_name = "../data/speed_info/7.csv"
 	
 	# 非负矩阵分解
-	def nmf(self, X, latent_features = 2, max_iter=1000, error_limit=1e-6, fit_error_limit=1e-6):
+	def nmf(self, X, latent_features = 3, max_iter=2000, error_limit=1e-6, fit_error_limit=1e-6):
 		"""
 		Decompose X to A*Y
 		"""
@@ -60,6 +60,47 @@ class MatrixProcess():
 					break
 		return A, Y
 
+	"""
+	@INPUT:
+		R     : a matrix to be factorized, dimension N x M
+		P     : an initial matrix of dimension N x K
+		Q     : an initial matrix of dimension M x K
+		K     : the number of latent features
+		steps : the maximum number of steps to perform the optimisation
+		alpha : the learning rate
+		beta  : the regularization parameter
+	@OUTPUT:
+		the final matrices P and Q
+	"""
+	def matrix_factorization(self,R, steps=500, alpha=0.0002, beta=0.02):
+		N = len(R)
+		M = len(R[0])
+		K = 2
+
+		P = np.random.rand(N,K)
+		Q = np.random.rand(M,K)
+
+		Q = Q.T
+		for step in xrange(steps):
+			for i in xrange(len(R)):
+				for j in xrange(len(R[i])):
+					if R[i][j] > 0:
+						eij = R[i][j] - np.dot(P[i,:],Q[:,j])
+						for k in xrange(K):
+							P[i][k] = P[i][k] + alpha * (2 * eij * Q[k][j] - beta * P[i][k])
+							Q[k][j] = Q[k][j] + alpha * (2 * eij * P[i][k] - beta * Q[k][j])
+			eR = np.dot(P,Q)
+			e = 0
+			for i in xrange(len(R)):
+				for j in xrange(len(R[i])):
+					if R[i][j] > 0:
+						e = e + pow(R[i][j] - np.dot(P[i,:],Q[:,j]), 2)
+						for k in xrange(K):
+							e = e + (beta/2) * ( pow(P[i][k],2) + pow(Q[k][j],2) )
+			if e < 0.001:
+				break
+		return P, Q.T
+
 	# 处理速度文件
 	def process(self):
 		for index,line in enumerate(open(self.file_name).readlines()):
@@ -71,12 +112,27 @@ class MatrixProcess():
 			during = int(records[3])
 			courier = records[4]
 			timestamp = records[5]
+			time_slot = self.getTimeSlot(timestamp)
+			if not time_slot:
+				continue
 			if courier not in self.speeds:
 				self.speeds[courier] = {}
 			if edge_id not in self.speeds[courier]:
 				self.speeds[courier][edge_id] = []
 			self.speeds[courier][edge_id].append((dist, during))
 			self.edges.add(edge_id)
+
+	# 获取时间戳所在的时间槽
+	def getTimeSlot(self, timestamp):
+		#return TIME_SLOT_FIRST
+		timestamp = int(timestamp[:10])
+		ltime = time.localtime(timestamp)
+		if ltime.tm_hour >= 9 and ltime.tm_hour <= 12:
+			return True
+		elif ltime.tm_hour >= 13 and ltime.tm_hour <= 17:
+			return True
+		else:
+			return False
 	
 	# 生成速度的矩阵
 	def generate_matrix(self):
@@ -97,25 +153,27 @@ class MatrixProcess():
 					dist = 0
 					during = 0
 					for record in records:
-						if not during > 60:
+						if not during > 30:
 							dist += record[0]
 							during += record[1]
 					if (during == 0) :
 						pass
 					else:
 						speed = dist / during
-						if speed > 0.5 and speed < 14:
+						#if speed > 0.5 and speed < 14:
+						if speed > 1:
 							speeds_tensor[x][y] = speed
 							#print speeds_tensor[x][y]
 							count += 1
 		print count_low_speed, count, len(couriers) * len(edges), count * 1.0 / (len(couriers) * len(edges))
 		print speeds_tensor
-		np.savetxt("../data/output/before.txt", speeds_tensor.ravel())
-		#nP, nQ = self.matrix_factorization(speeds_tensor)
-		nP, nQ = self.nmf(speeds_tensor)
-		reconstructed = np.dot(nP,nQ)
+		#np.savetxt("../data/output/before.txt", speeds_tensor.ravel())
+		nP, nQ = self.matrix_factorization(speeds_tensor)
+		#nP, nQ = self.nmf(speeds_tensor)
+		#reconstructed = np.dot(nP,nQ)
+		reconstructed = np.dot(nP,nQ.T)
 		print reconstructed
-		np.savetxt("../data/output/after.txt", reconstructed.ravel())
+		#np.savetxt("../data/output/after.txt", reconstructed.ravel())
 		writer = open(self.output_file, "a")
 		for x in range(len(couriers)):
 			courier = couriers[x]
@@ -141,8 +199,8 @@ class MatrixProcess():
 		writer.close()
 
 if __name__ == '__main__':
-	default_dir = "../data/speed_info/"
-	output_file = "../data/output/dense_speed.csv"
+	default_dir = "../data/speed_info_20160124/"
+	output_file = "../data/output/dense_speed_20160124_5.csv"
 	for file_name in os.listdir(default_dir):
 		file_path = default_dir + file_name
 		print file_path, output_file
