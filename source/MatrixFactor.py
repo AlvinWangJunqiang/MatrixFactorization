@@ -9,7 +9,6 @@ MIN_LIMIT = 1
 MAX_LIMIT = 20
 
 class MatrixProcess():
-
 	def __init__(self, file_name, output_file):
 		self.speeds = {}
 		self.edges = set()
